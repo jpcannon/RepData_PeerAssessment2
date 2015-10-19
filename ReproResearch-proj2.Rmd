@@ -1,0 +1,79 @@
+---
+title: 'Reproducible Research - Peer Assessment 2'
+author: "Joe Cannon"
+date: "October 12, 2015"
+output: html_document
+---
+
+Impact of Severe Weather Events on Public Health and Economy in the United States
+Synopsis
+In this report, the goal is to analyze the impact of different weather events on public health and economy based on the storm database collected from the U.S. National Oceanic and Atmospheric Administration's (NOAA) from 1950 - 2011. The data used will be estimates of fatalities, injuries, property and crop damage to decide which types of event are most harmful to the population health and economy. From these data, we found that high temperatures and tornado are most harmful with respect to population health, while flood, drought, and hurricane/typhoon have the greatest economic impacts.
+
+### Load Libraries
+```{r}
+library(ggplot2)
+library(plyr)
+library(lubridate)
+library(gridExtra)
+
+```
+
+Data Processing
+First, we check to make sure the data is present, if not download it. Then we decompress it so we can proess it.
+
+```{r}
+if (!"stormData.csv.bz2" %in% dir("./")) {
+    print("hhhh")
+    download.file("http://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2", destfile = "stormData.csv.bz2")
+}
+stormData <- read.table("stormData.csv.bz2",
+                       header = T,quote="\"", sep=",",na.strings = NA)
+
+str(stormData)
+stormData$BGN_DATE <- as.Date(stormData$BGN_DATE,format="%m/%d/%Y")
+stormData$BGN_TIME <- as.character(stormData$BGN_TIME)
+n12hr <- length(stormData[grep("AM|PM",stormData$BGN_TIME),]$BGN_TIME)
+```
+####Now we have to clean up the begin dates. Even though they are suppose to enter the time in 24hr format; we noticed that `r n12hr` have entered in 12hr format. So we are going to convert those to 24hr format
+```{r}
+AMPMData <-stormData[grepl("[AM]|[PM]",stormData$BGN_TIME),]
+t2 <-stormData[!(grepl("[AM]|[PM]",stormData$BGN_TIME)),]
+AMPMData$NBGN_TIME <- paste0(substr(strptime(AMPMData$BGN_TIME, "%I:%M:%S %p" ),12,13),                                   substr(strptime(AMPMData$BGN_TIME, "%I:%M:%S %p" ),15,16))
+AMPMData[grepl("NA",AMPMData$NBGN_TIME),]$NBGN_TIME<- paste0(substr(AMPMData[grepl("NA",AMPMData$NBGN_TIME),]$BGN_TIME,1,2),substr(AMPMData[grepl("NA",AMPMData$NBGN_TIME),]$BGN_TIME,4,5))
+AMPMData$BGN_TIME <-AMPMData$NBGN_TIME
+AMPMData <- select(AMPMData,-(NBGN_TIME))
+stormData <- rbind(t2,AMPMData)
+```
+Now we convert the Begin Date and Time into one DateTime column
+```{r}
+stormData$BGN_TIME <-  sprintf("%04s", stormData$BGN_TIME)                                                                              
+stormData$BGN_TIME_C <-paste0(substr(stormData$BGN_TIME,1,2),":",substr(stormData$BGN_TIME,3,4))
+stormData$BGN_DateTime <- strptime(paste(as.character(stormData$BGN_DATE),stormData$BGN_TIME_C), format = "%Y-%m-%d %H:%M" )
+stormData2 <- subset(stormData, is.na(stormData$BGN_DateTime))
+cstormData <- subset(stormData, !is.na(stormData$BGN_DateTime))
+rm(stormData)
+
+write.csv(stormData2,file="BadStormData.csv")
+nBadRows <-nrow(stormData2)
+rm(stormData2)
+```
+Now we are down to `r nBadRows`. We will just remove them for now.
+
+```{r}
+datarows <- nrow(cstormData)
+datacols <- ncol(cstormData)
+lastyear <- max(year(cstormData$BGN_DateTime))
+firstyear <- min(year(cstormData$BGN_DateTime))
+```
+
+We have `r format(datarows,digits=2, big.mark=",")`, rows and `r format(datacols,digits=2, big.mark=",")` columns in total. The events in the database start in the year `r firstyear` and end in `r lastyear`. 
+
+```{r}
+ggplot(cstormData, aes(x = year(cstormData$BGN_Date))) + 
+         geom_histogram(color="blue") +
+        labs(title="Events Per Year", 
+             x = "Year", y = "Events") 
+
+```
+
+
