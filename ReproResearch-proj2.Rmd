@@ -1,79 +1,170 @@
 ---
-title: 'Reproducible Research - Peer Assessment 2'
+title: "Reproducible Research - Peer Assessment 2"
 author: "Joe Cannon"
 date: "October 12, 2015"
 output: html_document
 ---
 
+
 Impact of Severe Weather Events on Public Health and Economy in the United States
-Synopsis
-In this report, the goal is to analyze the impact of different weather events on public health and economy based on the storm database collected from the U.S. National Oceanic and Atmospheric Administration's (NOAA) from 1950 - 2011. The data used will be estimates of fatalities, injuries, property and crop damage to decide which types of event are most harmful to the population health and economy. From these data, we found that high temperatures and tornado are most harmful with respect to population health, while flood, drought, and hurricane/typhoon have the greatest economic impacts.
+
+#####Synopsis
+In this report, the goal is to analyze the impact of different weather events on public health and economy based on the storm database collected from the U.S. National Oceanic and Atmospheric Administration's (NOAA) from 1950 - 2011. The data used will be estimates of:
+
+-Fatalities, and injuries to caclulate damage with regards to population health
+-Property and crop damage to caclulate damage with regards to economic impact
+
+ 
+###Data Processing
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(cache=TRUE)
+```
 
 ### Load Libraries
 ```{r}
-library(ggplot2)
-library(plyr)
-library(lubridate)
-library(gridExtra)
-
+suppressWarnings(suppressMessages(library(ggplot2)))
+suppressWarnings(suppressMessages(library(dplyr)))
+suppressWarnings(suppressMessages(library(lubridate)))
+suppressWarnings(suppressMessages(library(gridExtra)))
+suppressWarnings(suppressMessages(library(grid)))
+suppressWarnings(suppressMessages(library(gtable)))
 ```
 
 Data Processing
 First, we check to make sure the data is present, if not download it. Then we decompress it so we can proess it.
 
-```{r}
-if (!"stormData.csv.bz2" %in% dir("./")) {
+```{r read_data}
+if (!"stormdata.csv.bz2" %in% tolower(dir("./"))) {
     print("hhhh")
-    download.file("http://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2", destfile = "stormData.csv.bz2")
+    download.file("http://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2", destfile = "stormdata.csv.bz2")
 }
-stormData <- read.table("stormData.csv.bz2",
+stormdata <- read.table("stormdata.csv.bz2",
                        header = T,quote="\"", sep=",",na.strings = NA)
 
-str(stormData)
-stormData$BGN_DATE <- as.Date(stormData$BGN_DATE,format="%m/%d/%Y")
-stormData$BGN_TIME <- as.character(stormData$BGN_TIME)
-n12hr <- length(stormData[grep("AM|PM",stormData$BGN_TIME),]$BGN_TIME)
 ```
-####Now we have to clean up the begin dates. Even though they are suppose to enter the time in 24hr format; we noticed that `r n12hr` have entered in 12hr format. So we are going to convert those to 24hr format
-```{r}
-AMPMData <-stormData[grepl("[AM]|[PM]",stormData$BGN_TIME),]
-t2 <-stormData[!(grepl("[AM]|[PM]",stormData$BGN_TIME)),]
+
+
+```{r convert_cols}
+stormdata$BGN_DATE <- as.Date(stormdata$BGN_DATE,format="%m/%d/%Y")
+stormdata$BGN_TIME <- as.character(stormdata$BGN_TIME)
+stormdata$EVTYPE   <- as.character(stormdata$EVTYPE)
+bn12hr <- length(stormdata[grep("AM|PM",stormdata$BGN_TIME),]$BGN_TIME)
+```
+####Now we have to clean up the begin dates. Even though they are suppose to enter the time in 24hr format; we noticed that `r bn12hr` times have been entered in 12hr format. So we are going to convert those to 24hr format.
+###NOTE: The Ending times are so sparse and in such bad shape that it does not make sense to work with that data at this point.
+
+Now we conver the 12hr formats to 24hr HHMM format.
+
+```{r clean_AMPM}
+AMPMData <-stormdata[grepl("[AM]|[PM]",stormdata$BGN_TIME),]
+t2 <-stormdata[!(grepl("[AM]|[PM]",stormdata$BGN_TIME)),]
 AMPMData$NBGN_TIME <- paste0(substr(strptime(AMPMData$BGN_TIME, "%I:%M:%S %p" ),12,13),                                   substr(strptime(AMPMData$BGN_TIME, "%I:%M:%S %p" ),15,16))
 AMPMData[grepl("NA",AMPMData$NBGN_TIME),]$NBGN_TIME<- paste0(substr(AMPMData[grepl("NA",AMPMData$NBGN_TIME),]$BGN_TIME,1,2),substr(AMPMData[grepl("NA",AMPMData$NBGN_TIME),]$BGN_TIME,4,5))
 AMPMData$BGN_TIME <-AMPMData$NBGN_TIME
 AMPMData <- select(AMPMData,-(NBGN_TIME))
-stormData <- rbind(t2,AMPMData)
-```
-Now we convert the Begin Date and Time into one DateTime column
-```{r}
-stormData$BGN_TIME <-  sprintf("%04s", stormData$BGN_TIME)                                                                              
-stormData$BGN_TIME_C <-paste0(substr(stormData$BGN_TIME,1,2),":",substr(stormData$BGN_TIME,3,4))
-stormData$BGN_DateTime <- strptime(paste(as.character(stormData$BGN_DATE),stormData$BGN_TIME_C), format = "%Y-%m-%d %H:%M" )
-stormData2 <- subset(stormData, is.na(stormData$BGN_DateTime))
-cstormData <- subset(stormData, !is.na(stormData$BGN_DateTime))
-rm(stormData)
-
-write.csv(stormData2,file="BadStormData.csv")
-nBadRows <-nrow(stormData2)
-rm(stormData2)
-```
-Now we are down to `r nBadRows`. We will just remove them for now.
-
-```{r}
-datarows <- nrow(cstormData)
-datacols <- ncol(cstormData)
-lastyear <- max(year(cstormData$BGN_DateTime))
-firstyear <- min(year(cstormData$BGN_DateTime))
+stormdata <- rbind(t2,AMPMData)
+stormdata$BGN_TIME <-  sprintf("%04s", stormdata$BGN_TIME) 
 ```
 
-We have `r format(datarows,digits=2, big.mark=",")`, rows and `r format(datacols,digits=2, big.mark=",")` columns in total. The events in the database start in the year `r firstyear` and end in `r lastyear`. 
+Now we get our boundry years.
+```{r get_boundryyears}
+lastyear <- max(year(stormdata$BGN_DATE))
+firstyear <- min(year(stormdata$BGN_DATE))
+```
 
-```{r}
-ggplot(cstormData, aes(x = year(cstormData$BGN_Date))) + 
-         geom_histogram(color="blue") +
+The events in the database start in the year `r firstyear` and end in `r lastyear`. The spread is as follows.
+```{r plot_datadesity}
+
+ggplot(stormdata, aes(x = year(stormdata$BGN_DATE))) + 
+         geom_histogram(color="blue",binwidth=2.5) +
         labs(title="Events Per Year", 
              x = "Year", y = "Events") 
 
 ```
 
+####Trim the data to a representitive subset.
+I decided to trim down to the last 20 years. Events occurring before then are not as relevant as technologies such as storm warnings, architectural integrity have dramatically improved. Also data entered in prior to 1991 is much more sparse and suspect in coding. It should be noted that during my experiments I noted changing the cutoff date above 1991 alters the top economic event as shown
+
+* All Years                     -> Tornado
+
+* 1991(last 20 years)           -> Tornado
+
+* 1995(Big jump in avail data)  -> Flash Flood
+
+* 1996(last 15 years)           -> TSTM Wind
+
+* 2001(last 10 years)           -> Flash Flood
+
+Personal cost remained consistant with Tornados being the #1 cause of injury/death by a hefty margin.
+This point came up in the discussion forums.
+
+```{r trim_data}
+cstormdata <- stormdata[which(year(stormdata$BGN_DATE)>=1991),]%>%
+             select(BGN_DATE,BGN_TIME,EVTYPE,INJURIES,FATALITIES,PROPDMG,CROPDMG)
+cstormdata$EVTYPE <- as.character(cstormdata$EVTYPE)
+```
+
+Calculate the costs in injury/fatalities per event.
+Calculate the costs in economic costs per event.
+
+```{r plot_costperevent, fig.height = 6,fig.width= 11}
+personalcost_event <- aggregate(cbind(INJURIES,FATALITIES,INJURIES+FATALITIES)~EVTYPE , cstormdata, sum, na.action=na.omit)
+
+colnames(personalcost_event) <- c("EVTYPE","INJURIES","FATALITIES","TOTALPC")
+personalcost_event$EVTYPE = as.character(personalcost_event$EVTYPE)
+
+TPI <- head(personalcost_event[order(-personalcost_event$TOTALPC),],7)
+colnames(TPI) <- c("Event","Injuries","Fatalities","Total Death/Fatalities")
+
+economiccost_event <- aggregate(cbind(PROPDMG,CROPDMG,PROPDMG+CROPDMG)~EVTYPE , cstormdata, sum, na.action=na.omit)
+colnames(economiccost_event) <- c("EVTYPE","PROPDMG","CROPDMG","TOTALEC")
+economiccost_event$EVTYPE = as.character(economiccost_event$EVTYPE)
+TEC <- head(economiccost_event[order(-economiccost_event$TOTALEC),],7)
+colnames(TEC) <- c("Event","Prop Damage","Crop Damage","Total $ Damage")
+tt <- merge(TEC,TPI)
+tt$"Economic Damage RANK" <- rank(-tt$`Total $ Damage`)
+tt$"Personal Inj/Death Rank"<- rank(-tt$`Total Death/Fatalities`)
+tt <-arrange(tt,tt$"Personal Inj/Death Rank",tt$"Economic Damage RANK")
+
+
+mytheme <- gridExtra::ttheme_default(
+    core = list(fg_params=list(cex = 1)),
+    colhead = list(fg_params=list(cex = .6)),
+    rowhead = list(fg_params=list(cex = .6)))
+
+table <- gridExtra::tableGrob(tt, theme = mytheme,rows=NULL)
+title <- textGrob("Ranking of Top Damaging Storms",gp=gpar(fontsize=40))
+footnote <- textGrob("Top storms and their relative rankings", x=0, hjust=0,
+                     gp=gpar( fontface="italic"))
+
+
+padding <- unit(1,"line")
+table <- gtable_add_rows(table, 
+                         heights = grobHeight(title) + padding,
+                         pos = 0)
+table <- gtable_add_rows(table, 
+                         heights = grobHeight(footnote)+ padding)
+table <- gtable_add_grob(table, list(title, footnote),
+                         t=c(1, nrow(table)), l=c(1,2), 
+                         r=ncol(table))
+
+grid.newpage()
+grid.draw(table)
+
+```
+
+Calculate and plot time sensitivity to economic costs of each of the top 5 events.
+```{r plot_tornadobytime}
+
+Tornados <- cstormdata[cstormdata$EVTYPE %in% TEC$Event,]
+Tornado_TimeTrend <- aggregate(cbind(PROPDMG+CROPDMG,INJURIES+FATALITIES)~as.integer(substr(BGN_TIME,1,2))+EVTYPE, Tornados, mean)
+colnames(Tornado_TimeTrend) <- c("TIME","EVENT","TECODMG","TPERDMG")
+ ggplot(Tornado_TimeTrend, aes(x=TIME, y=TECODMG,colour = EVENT)) + 
+  geom_line()
+  
+``` 
+
+###Results:
+From this analysis, I found that Tornado are the most damaging with respect to both population health, as well as economic impacts (followed closely by Flash Floods, and Floods ). I also noted that the most economic damage for this events occurs between the hours of 10pm and 5am. This is most likey due to catching people off gaurd or sleeping. Alarms, and cell notifications could have a direct impace on the economic damage caused by these events.
 
