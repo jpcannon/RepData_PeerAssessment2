@@ -1,12 +1,10 @@
 ---
-title: "Reproducible Research - Peer Assessment 2"
+title: "Impact of Severe Weather Events on Public Health and Economy in the United States"
 author: "Joe Cannon"
 date: "October 12, 2015"
 output: html_document
 ---
 
-
-Impact of Severe Weather Events on Public Health and Economy in the United States
 
 #####Synopsis
 In this report, the goal is to analyze the impact of different weather events on public health and economy based on the storm database collected from the U.S. National Oceanic and Atmospheric Administration's (NOAA) from 1950 - 2011. The data used will be estimates of:
@@ -14,6 +12,7 @@ In this report, the goal is to analyze the impact of different weather events on
 -Fatalities, and injuries to caclulate damage with regards to population health
 -Property and crop damage to caclulate damage with regards to economic impact
 
+The work that I did for this project is available at https://github.com/jpcannon/RepData_PeerAssessment2 
  
 ###Data Processing
 
@@ -29,10 +28,15 @@ suppressWarnings(suppressMessages(library(lubridate)))
 suppressWarnings(suppressMessages(library(gridExtra)))
 suppressWarnings(suppressMessages(library(grid)))
 suppressWarnings(suppressMessages(library(gtable)))
+suppressWarnings(suppressMessages(library(scales)))
 ```
 
 Data Processing
 First, we check to make sure the data is present, if not download it. Then we decompress it so we can proess it.
+
+```{r system Info}
+sessionInfo()
+```
 
 ```{r read_data}
 if (!"stormdata.csv.bz2" %in% tolower(dir("./"))) {
@@ -43,43 +47,65 @@ stormdata <- read.table("stormdata.csv.bz2",
                        header = T,quote="\"", sep=",",na.strings = NA)
 
 ```
+Information about the data.
+```{r}
+str(stormdata)
+```
 
-
+Set the data types I want to use.
 ```{r convert_cols}
 stormdata$BGN_DATE <- as.Date(stormdata$BGN_DATE,format="%m/%d/%Y")
 stormdata$BGN_TIME <- as.character(stormdata$BGN_TIME)
 stormdata$EVTYPE   <- as.character(stormdata$EVTYPE)
 bn12hr <- length(stormdata[grep("AM|PM",stormdata$BGN_TIME),]$BGN_TIME)
 ```
-####Now we have to clean up the begin dates. Even though they are suppose to enter the time in 24hr format; we noticed that `r bn12hr` times have been entered in 12hr format. So we are going to convert those to 24hr format.
-###NOTE: The Ending times are so sparse and in such bad shape that it does not make sense to work with that data at this point.
 
-Now we conver the 12hr formats to 24hr HHMM format.
+#####Now we have to clean up the begin dates. Even though they are suppose to enter the time in 24hr format; we noticed that `r bn12hr` times have been entered in 12hr format. So we are going to convert those to 24hr format.
 
+####NOTE: The Ending times are so sparse and in such bad shape that it does not make sense to work with that data at this point.
+
+Next we convert the 12hr formats to 24hr HHMM format.
+
+Split out the times that have an AM or PM in them from the 24hr formated times.
 ```{r clean_AMPM}
 AMPMData <-stormdata[grepl("[AM]|[PM]",stormdata$BGN_TIME),]
 t2 <-stormdata[!(grepl("[AM]|[PM]",stormdata$BGN_TIME)),]
+n12rows <- nrow(AMPMData)
+n24rows <- nrow(t2)
+pamrows <- (n12rows/(n12rows+n24rows)) *100
+```
+
+There were `r n12rows` formated as 12hr, and `r n24rows` rows in 24 hour format. About `r pamrows`% of the observations were in 12hr format.
+
+Convert the 12hr times to 24hr format.
+```{r convert_12to24}
 AMPMData$NBGN_TIME <- paste0(substr(strptime(AMPMData$BGN_TIME, "%I:%M:%S %p" ),12,13),                                   substr(strptime(AMPMData$BGN_TIME, "%I:%M:%S %p" ),15,16))
 AMPMData[grepl("NA",AMPMData$NBGN_TIME),]$NBGN_TIME<- paste0(substr(AMPMData[grepl("NA",AMPMData$NBGN_TIME),]$BGN_TIME,1,2),substr(AMPMData[grepl("NA",AMPMData$NBGN_TIME),]$BGN_TIME,4,5))
 AMPMData$BGN_TIME <-AMPMData$NBGN_TIME
 AMPMData <- select(AMPMData,-(NBGN_TIME))
+```
+
+Recombine the datasets
+```{r recombine}
 stormdata <- rbind(t2,AMPMData)
 stormdata$BGN_TIME <-  sprintf("%04s", stormdata$BGN_TIME) 
 ```
 
-Now we get our boundry years.
+Identify the boundry years 
 ```{r get_boundryyears}
+#Identify boundry years
 lastyear <- max(year(stormdata$BGN_DATE))
 firstyear <- min(year(stormdata$BGN_DATE))
 ```
 
 The events in the database start in the year `r firstyear` and end in `r lastyear`. The spread is as follows.
 ```{r plot_datadesity}
-
 ggplot(stormdata, aes(x = year(stormdata$BGN_DATE))) + 
-         geom_histogram(color="blue",binwidth=2.5) +
-        labs(title="Events Per Year", 
-             x = "Year", y = "Events") 
+        geom_histogram(color="blue",binwidth=2.5) +
+        scale_y_continuous(labels = comma)+
+        ggtitle("Number of Storm Events Per Year")+
+        xlab("Year")+
+        ylab("Number of Recorded Events")
 
 ```
 
@@ -99,35 +125,55 @@ I decided to trim down to the last 20 years. Events occurring before then are no
 Personal cost remained consistant with Tornados being the #1 cause of injury/death by a hefty margin.
 This point came up in the discussion forums.
 
+So we will trim the data down to the last 20years and only the varibles that we are uing in the anlysis.
 ```{r trim_data}
 cstormdata <- stormdata[which(year(stormdata$BGN_DATE)>=1991),]%>%
              select(BGN_DATE,BGN_TIME,EVTYPE,INJURIES,FATALITIES,PROPDMG,CROPDMG)
 cstormdata$EVTYPE <- as.character(cstormdata$EVTYPE)
+nrowcstorm <- nrow(cstormdata)
+ncolcstorm <- ncol(cstormdata)
 ```
 
-Calculate the costs in injury/fatalities per event.
-Calculate the costs in economic costs per event.
+Now we are working with `r nrowcstorm` observations of `r ncolcstorm` variables.
 
-```{r plot_costperevent, fig.height = 6,fig.width= 11}
+A summary of the data that we will be analizng is.
+```{r summarize}
+summary(cstormdata)
+```
+
+Next we calculate the costs in injury/fatalities per event.
+
+```{r perperevent}
 personalcost_event <- aggregate(cbind(INJURIES,FATALITIES,INJURIES+FATALITIES)~EVTYPE , cstormdata, sum, na.action=na.omit)
-
 colnames(personalcost_event) <- c("EVTYPE","INJURIES","FATALITIES","TOTALPC")
 personalcost_event$EVTYPE = as.character(personalcost_event$EVTYPE)
-
 TPI <- head(personalcost_event[order(-personalcost_event$TOTALPC),],7)
 colnames(TPI) <- c("Event","Injuries","Fatalities","Total Death/Fatalities")
 
+```
+
+As well as calculate the costs in economic costs per event.
+
+```{r ecoperevent}
 economiccost_event <- aggregate(cbind(PROPDMG,CROPDMG,PROPDMG+CROPDMG)~EVTYPE , cstormdata, sum, na.action=na.omit)
 colnames(economiccost_event) <- c("EVTYPE","PROPDMG","CROPDMG","TOTALEC")
 economiccost_event$EVTYPE = as.character(economiccost_event$EVTYPE)
 TEC <- head(economiccost_event[order(-economiccost_event$TOTALEC),],7)
 colnames(TEC) <- c("Event","Prop Damage","Crop Damage","Total $ Damage")
+```
+
+Combine the two cost types
+
+```{r merge_costsets}
 tt <- merge(TEC,TPI)
 tt$"Economic Damage RANK" <- rank(-tt$`Total $ Damage`)
 tt$"Personal Inj/Death Rank"<- rank(-tt$`Total Death/Fatalities`)
 tt <-arrange(tt,tt$"Personal Inj/Death Rank",tt$"Economic Damage RANK")
+```
 
+Display in a meaningful table with respective ranking
 
+```{r create_table, fig.height = 6,fig.width= 11}
 mytheme <- gridExtra::ttheme_default(
     core = list(fg_params=list(cex = 1)),
     colhead = list(fg_params=list(cex = .6)),
@@ -137,8 +183,6 @@ table <- gridExtra::tableGrob(tt, theme = mytheme,rows=NULL)
 title <- textGrob("Ranking of Top Damaging Storms",gp=gpar(fontsize=40))
 footnote <- textGrob("Top storms and their relative rankings", x=0, hjust=0,
                      gp=gpar( fontface="italic"))
-
-
 padding <- unit(1,"line")
 table <- gtable_add_rows(table, 
                          heights = grobHeight(title) + padding,
@@ -151,17 +195,22 @@ table <- gtable_add_grob(table, list(title, footnote),
 
 grid.newpage()
 grid.draw(table)
-
 ```
 
 Calculate and plot time sensitivity to economic costs of each of the top 5 events.
-```{r plot_tornadobytime}
+####Note: I am removing hour 24. There appears to be a few outlier values that skew the results. Also there is no such time. The number of observations is approx. 13, so it is statistically insignificant. 
 
-Tornados <- cstormdata[cstormdata$EVTYPE %in% TEC$Event,]
-Tornado_TimeTrend <- aggregate(cbind(PROPDMG+CROPDMG,INJURIES+FATALITIES)~as.integer(substr(BGN_TIME,1,2))+EVTYPE, Tornados, mean)
-colnames(Tornado_TimeTrend) <- c("TIME","EVENT","TECODMG","TPERDMG")
- ggplot(Tornado_TimeTrend, aes(x=TIME, y=TECODMG,colour = EVENT)) + 
-  geom_line()
+```{r plot_tornadobytime, fig.height = 6,fig.width= 11}
+TopStorms <- cstormdata[which(cstormdata$EVTYPE %in% TEC$Event & substr(cstormdata$BGN_TIME,1,2)!="24"),]
+TopStorms_TimeTrend <- aggregate(cbind(PROPDMG+CROPDMG,INJURIES+FATALITIES)~as.integer(substr(BGN_TIME,1,2))+EVTYPE, TopStorms, mean)
+
+colnames(TopStorms_TimeTrend) <- c("TIME","EVENT","TECODMG","TPERDMG")
+
+ ggplot(TopStorms_TimeTrend, aes(x=TIME, y=TECODMG,colour = EVENT)) + 
+  geom_line()+
+  ggtitle("Economic Damage of Events by Time of Day")+
+     xlab("Time of Day")+
+     ylab("Economic Cost")
   
 ``` 
 
